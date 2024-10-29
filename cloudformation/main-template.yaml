@@ -256,11 +256,46 @@ Resources:
             Action: "s3:GetObject"
             Resource: !Sub "arn:aws:s3:::word-wolf-app/*"
 
+  # CloudFront ディストリビューション
+  ReactAppCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Origins:
+          - DomainName: !GetAtt ReactAppBucket.DomainName  # S3バケットのドメイン名を使用
+            Id: ReactAppS3Origin
+            S3OriginConfig: {}  # S3OriginConfigを使用
+        DefaultCacheBehavior:
+          TargetOriginId: ReactAppS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: 
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          DefaultTTL: 86400
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        DefaultRootObject: "index.html"
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponsePagePath: "/index.html"
+            ResponseCode: 200
+          - ErrorCode: 403
+            ResponsePagePath: "/index.html"
+            ResponseCode: 200
+
 Outputs:
   AppSyncApiURL:
     Description: "The URL of the AppSync API"
     Value: !GetAtt AppSyncApi.GraphQLUrl
 
-  S3BucketURL:
-    Description: "The URL of the S3 bucket hosting the React App"
-    Value: !Sub "http://${!Ref ReactAppBucket}.s3-website-${AWS::Region}.amazonaws.com"
+  CloudFrontURL:
+    Description: "The CloudFront URL for accessing the React app with HTTPS"
+    Value: !Sub "https://${ReactAppCloudFrontDistribution.DomainName}"
