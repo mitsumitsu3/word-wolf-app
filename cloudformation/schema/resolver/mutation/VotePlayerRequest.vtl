@@ -1,0 +1,16 @@
+{
+  "version": "2017-02-28",
+  "operation": "UpdateItem",
+  "key": {
+    "id": { "S": "$ctx.args.playerId" }
+  },
+  "update": {
+    "expression": "SET voteTarget = :voteTarget",
+    "expressionValues": {
+      ":voteTarget": { "S": "$ctx.args.voteTarget" }
+    }
+  },
+  "condition": {
+    "expression": "attribute_exists(id)"
+  }
+}

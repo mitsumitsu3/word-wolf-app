@@ -1,0 +1,12 @@
+{
+    "version": "2017-02-28",
+    "operation": "PutItem",
+    "key": {
+        "id": $util.dynamodb.toDynamoDBJson($util.autoId())
+    },
+    "attributeValues": {
+        "roomId": $util.dynamodb.toDynamoDBJson($ctx.args.roomId),
+        "name": $util.dynamodb.toDynamoDBJson($ctx.args.name),
+        "connected": { "BOOL": true }
+    }
+}

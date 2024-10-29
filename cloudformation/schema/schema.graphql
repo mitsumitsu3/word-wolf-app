@@ -1,0 +1,81 @@
+# プレイヤー情報
+type Player @model @aws_api_key @aws_cognito_user_pools {
+  id: ID!
+  roomId: ID! 
+  name: String!
+  word: String
+  voteTarget: String
+}
+
+# ルーム情報を管理するモデル
+type Room @model @aws_api_key @aws_cognito_user_pools {
+  roomId: ID!  # ルームID
+  players: [Player] @connection(keyName: "byRoom", fields: ["roomId"])
+  endGame: Boolean!
+}
+
+# ミューテーション（Mutation）
+type Mutation {
+  # プレイヤーをルームに参加させる（認証不要）
+  joinRoom(roomId: ID!, name: String!): Player
+    @aws_api_key
+
+  # プレイヤー投票
+  votePlayer(playerId: ID!, voteTarget: String!): Player
+    @aws_api_key
+
+  # プレイヤーに対してワードを設定する（Cognito認証）
+  assignWordToPlayer(input: WordToPlayerInput!): Player
+    @aws_cognito_user_pools
+
+  # プレイヤーを除外する
+  kickPlayer(playerId: ID!): String
+    @aws_cognito_user_pools
+
+  # ゲーム完了時にルームのroomのendGameを変更する
+  setEndGame(roomId: ID!, endGame: Boolean!): Room
+    @aws_cognito_user_pools
+}
+
+# クエリ（Query）
+type Query {
+  # 特定のルームを取得（認証不要）
+  getRoom(roomId: ID!): Room
+    @aws_api_key
+
+  # すべてのルーム一覧を取得（認証不要）
+  listRooms: [Room]
+    @aws_api_key
+
+  # 特定のプレイヤーを取得（認証不要）
+  getPlayer(playerId: ID!): Player
+    @aws_api_key
+}
+
+# サブスクリプション（Subscription） - リアルタイム更新
+type Subscription {
+  # プレイヤーがルームに参加したときに通知を受け取る
+  onPlayerJoined: Player
+    @aws_subscribe(mutations: ["joinRoom"])  @aws_cognito_user_pools
+
+  # 管理者がワードを配布したときに通知を受け取る（認証不要）
+  onWordsDistributed(playerId: ID): Player
+    @aws_subscribe(mutations: ["assignWordToPlayer"])
+
+  # プレイヤーが投票したときに通知を受け取る
+  onPlayerVoted(playerId: ID): Player
+    @aws_subscribe(mutations: ["votePlayer"]) @aws_cognito_user_pools
+
+  # ゲームが完了した際にプレイヤーが通知を受け取る
+  onGameFinish(roomId: ID): Room
+    @aws_subscribe(mutations: ["setEndGame"]) 
+  
+  # 管理者がプレイヤーをキックしたときに通知を受け取る
+  onPlayerKicked(playerId: ID): String
+    @aws_subscribe(mutations: ["kickPlayer"])
+}
+
+input WordToPlayerInput {
+  playerId: ID!
+  word: String!
+}

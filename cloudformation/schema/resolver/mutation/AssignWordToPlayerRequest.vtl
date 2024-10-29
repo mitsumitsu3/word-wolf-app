@@ -1,0 +1,16 @@
+{
+  "version": "2017-02-28",
+  "operation": "UpdateItem",
+  "key": {
+    "id": { "S": "$ctx.args.input.playerId" }
+  },
+  "update": {
+    "expression": "SET word = :word",
+    "expressionValues": {
+      ":word": { "S": "$ctx.args.input.word" }
+    }
+  },
+  "condition": {
+    "expression": "attribute_exists(id)"
+  }
+}

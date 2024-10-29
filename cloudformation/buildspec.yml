@@ -1,0 +1,28 @@
+# buildspec.yml
+
+version: 1.0
+
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - echo "Installing NPM dependencies..."
+        - npm install
+    build:
+      commands:
+        - echo "Building React app..."
+        - npm run build
+  artifacts:
+    baseDirectory: build
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+
+# オプション：カスタムドメインを使用してCloudFrontキャッシュをクリアする
+post_build:
+  commands:
+    - echo "Invalidating CloudFront cache..."
+    - aws cloudfront create-invalidation --distribution-id YOUR_DISTRIBUTION_ID --paths "/*"
+

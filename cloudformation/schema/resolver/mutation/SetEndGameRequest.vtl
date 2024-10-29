@@ -1,0 +1,16 @@
+{
+  "version": "2017-02-28",
+  "operation": "UpdateItem",
+  "key": {
+    "roomId": { "S": "$ctx.args.roomId" }
+  },
+  "update": {
+    "expression": "SET endGame = :endGame",
+    "expressionValues": {
+      ":endGame": { "S": "$ctx.args.endGame" }
+    }
+  },
+  "condition": {
+    "expression": "attribute_exists(roomId)"
+  }
+}

@@ -1,0 +1,266 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  # Cognito User Pool（ユーザー認証用）
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: WordWolfUserPool
+      AutoVerifiedAttributes:
+        - email
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      ClientName: WordWolfUserPoolClient
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_CUSTOM_AUTH
+        - ALLOW_USER_SRP_AUTH
+
+  # DynamoDBテーブル作っとく
+  PlayerTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: PlayerTable
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: roomId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:  # GSIの設定
+        - IndexName: "byRoom"
+          KeySchema:
+            - AttributeName: roomId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL  # すべての属性をインデックスに含める
+
+
+  # DynamoDBテーブル（ルーム情報とワード配布の管理）
+  RoomTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: RoomTable
+      AttributeDefinitions:
+        - AttributeName: roomId
+          AttributeType: S  # RoomのID
+      KeySchema:
+        - AttributeName: roomId
+          KeyType: HASH  # パーティションキー
+      BillingMode: PAY_PER_REQUEST
+
+  # AppSync API（GraphQL API設定）
+  AppSyncApi:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      Name: WordWolfApp
+      AuthenticationType: API_KEY
+      AdditionalAuthenticationProviders:
+        - AuthenticationType: AMAZON_COGNITO_USER_POOLS
+          UserPoolConfig:
+            UserPoolId: !Ref CognitoUserPool
+            AwsRegion: !Ref "AWS::Region"
+      XrayEnabled: true
+
+  # APIキーの作成
+  AppSyncApiKey:
+    Type: AWS::AppSync::ApiKey
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      Expires: 1737102471  # 有効期限を設定（例として）
+
+  # AppSync Schema（GraphQLスキーマ）
+  AppSyncSchema:
+    Type: AWS::AppSync::GraphQLSchema
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      DefinitionS3Location: s3://word-wolf-app-schema/schema.graphql
+
+  # AppSyncのデータソース（プレイヤーテーブル用）
+  PlayerTableDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      Name: PlayerTableDataSource
+      Type: AMAZON_DYNAMODB
+      DynamoDBConfig:
+        TableName: !Ref PlayerTable
+        AwsRegion: !Ref "AWS::Region"
+      ServiceRoleArn: !GetAtt AppSyncServiceRole.Arn
+
+  # AppSyncのデータソース（ルームテーブル用）
+  RoomTableDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      Name: RoomTableDataSource
+      Type: AMAZON_DYNAMODB
+      DynamoDBConfig:
+        TableName: !Ref RoomTable
+        AwsRegion: !Ref "AWS::Region"
+      ServiceRoleArn: !GetAtt AppSyncServiceRole.Arn
+
+  # RoomTable用リゾルバ
+  RoomGetResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      TypeName: "Query"
+      FieldName: "getRoom"
+      DataSourceName: !GetAtt RoomTableDataSource.Name
+      RequestMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/query/GetRoomRequest.vtl
+      ResponseMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/query/GetRoomResponse.vtl
+
+  ListRoomsResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      TypeName: "Query"
+      FieldName: "listRooms"
+      DataSourceName: !GetAtt RoomTableDataSource.Name
+      RequestMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/query/ListRoomsRequest.vtl
+      ResponseMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/query/ListRoomsResponse.vtl
+
+  # PlayerTable用リゾルバ
+  JoinRoomResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      TypeName: "Mutation"
+      FieldName: "joinRoom"
+      DataSourceName: !GetAtt PlayerTableDataSource.Name
+      RequestMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/mutation/JoinRoomRequest.vtl
+      ResponseMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/mutation/JoinRoomResponse.vtl
+
+  AssignWordToPlayerResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      TypeName: "Mutation"
+      FieldName: "assignWordToPlayer"
+      DataSourceName: !GetAtt PlayerTableDataSource.Name
+      RequestMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/mutation/AssignWordToPlayerRequest.vtl
+      ResponseMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/mutation/AssignWordToPlayerResponse.vtl
+
+  VotePlayerResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      TypeName: "Mutation"
+      FieldName: "votePlayer"
+      DataSourceName: !GetAtt PlayerTableDataSource.Name
+      RequestMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/mutation/VotePlayerRequest.vtl
+      ResponseMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/mutation/VotePlayerResponse.vtl
+
+  SetEndGameResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      TypeName: "Mutation"
+      FieldName: "setEndGame"
+      DataSourceName: !GetAtt RoomTableDataSource.Name
+      RequestMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/mutation/SetEndGameRequest.vtl
+      ResponseMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/mutation/SetEndGameResponse.vtl
+
+  KickPlayerResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      TypeName: "Mutation"
+      FieldName: "kickPlayer"
+      DataSourceName: !GetAtt PlayerTableDataSource.Name
+      RequestMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/mutation/KickPlayerRequest.vtl
+      ResponseMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/mutation/KickPlayerResponse.vtl
+
+  GetPlayerResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      TypeName: "Query"
+      FieldName: "getPlayer"
+      DataSourceName: !GetAtt PlayerTableDataSource.Name
+      RequestMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/query/GetPlayerRequest.vtl
+      ResponseMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/query/GetPlayerResponse.vtl
+
+  # roomのplayersを取得するリゾルバ
+  GetPlayersResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt AppSyncApi.ApiId
+      TypeName: "Room"
+      FieldName: "players"
+      DataSourceName: !GetAtt PlayerTableDataSource.Name
+      RequestMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/query/GetPlayersRequest.vtl
+      ResponseMappingTemplateS3Location: s3://word-wolf-app-schema/resolver/query/GetPlayersResponse.vtl
+
+
+  # AppSyncのリゾルバ用IAMロール
+  AppSyncServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AppSyncServiceRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AppSyncDynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt PlayerTable.Arn
+                  - !GetAtt RoomTable.Arn
+
+  # S3バケット（Reactフロントエンド用ホスティング）
+  ReactAppBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: word-wolf-app
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  ReactAppBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ReactAppBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: "s3:GetObject"
+            Resource: !Sub "arn:aws:s3:::word-wolf-app/*"
+
+Outputs:
+  AppSyncApiURL:
+    Description: "The URL of the AppSync API"
+    Value: !GetAtt AppSyncApi.GraphQLUrl
+
+  S3BucketURL:
+    Description: "The URL of the S3 bucket hosting the React App"
+    Value: !Sub "http://${!Ref ReactAppBucket}.s3-website-${AWS::Region}.amazonaws.com"
